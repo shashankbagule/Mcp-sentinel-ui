@@ -1,69 +1,151 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+const ALLOWED_TARGETS = [
+  "https://vulnerablemcp.onrender.com/mcp",
+  "https://shashankbagule.app.n8n.cloud/mcp/7366dacd-9061-42d4-a563-9585c0af932b",
+  "http://172.17.0.1:8000/mcp",
+  "http://127.0.0.1:8000/mcp",
+  "http://192.168.0.103:8000/mcp",
+  "https://example-server.modelcontextprotocol.io/mcp",
+  "http://127.0.0.1:9000/mcp",
+];
+
+export default function HomePage() {
+  const router = useRouter();
+  const [target, setTarget] = useState("");
+  const [dryRun, setDryRun] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleScan(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/scan/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_url: target, dry_run: dryRun }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      router.push(`/scan/${data.execution_id}?target=${encodeURIComponent(target)}`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="max-w-4xl mx-auto px-6 py-16">
+      <div className="text-center mb-14">
+        <div className="inline-flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-3 py-1.5 rounded-full mb-6">
+          <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse"></span>
+          Automated MCP Security Testing
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+        <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">
+          Pentest your{" "}
+          <span className="bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent">
+            MCP Server
+          </span>
+        </h1>
+        <p className="text-slate-400 text-lg max-w-xl mx-auto">
+          MCP-Sentinel automatically tests MCP servers for prompt injection, auth bypass,
+          tool poisoning, resource exposure, and more.
+        </p>
+      </div>
+
+      <div className="bg-[#0d1225] border border-slate-800 rounded-2xl p-8 shadow-2xl">
+        <form onSubmit={handleScan} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Target MCP Server URL
+            </label>
+            <input
+              type="url"
+              value={target}
+              onChange={e => setTarget(e.target.value)}
+              placeholder="https://your-mcp-server.com/mcp"
+              required
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <div className="mt-3 flex flex-wrap gap-2">
+              {ALLOWED_TARGETS.slice(0, 3).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTarget(t)}
+                  className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 px-3 py-1 rounded-lg transition-colors truncate max-w-[240px]"
+                >
+                  {t.replace("https://", "").replace("http://", "").split("/")[0]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setDryRun(!dryRun)}
+              className={`relative w-11 h-6 rounded-full transition-colors ${dryRun ? "bg-orange-500" : "bg-slate-700"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${dryRun ? "translate-x-5" : ""}`} />
+            </button>
+            <div>
+              <span className="text-sm font-medium text-slate-300">Dry run</span>
+              <p className="text-xs text-slate-500">Passive checks only — no live tool invocations</p>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl px-4 py-3 text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-xl transition-all shadow-lg shadow-red-900/30 flex items-center justify-center gap-2"
           >
-            Documentation
-          </a>
-        </div>
-      </main>
+            {loading ? (
+              <>
+                <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Starting scan...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                Start Security Scan
+              </>
+            )}
+          </button>
+        </form>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-10">
+        {[
+          { icon: "💉", label: "Prompt Injection", desc: "Tests for hidden payloads in tool descriptions" },
+          { icon: "🔐", label: "Auth Bypass", desc: "Checks session validation and spoofing" },
+          { icon: "☠️", label: "Tool Poisoning", desc: "Detects misleading safety claims" },
+          { icon: "📂", label: "Resource Exposure", desc: "Audits exposed sensitive URIs" },
+        ].map(f => (
+          <div key={f.label} className="bg-[#0d1225] border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+            <div className="text-2xl mb-2">{f.icon}</div>
+            <div className="text-sm font-semibold text-white mb-1">{f.label}</div>
+            <div className="text-xs text-slate-500">{f.desc}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
