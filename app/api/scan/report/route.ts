@@ -50,8 +50,26 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (report) {
-    return NextResponse.json({ status, report });
+  // Discovered tools/resources/prompts, for the frontend's Discovered tab.
+  // 'Parse Report To JSON' already attaches these to its own output (all 4
+  // of its return branches carry tools/resources/prompts arrays sourced
+  // from the List Tools / Discover Resources / Discover Prompts nodes) —
+  // this route previously only ever forwarded `status` and `report`, so
+  // the data was being produced by n8n but silently dropped here.
+  let tools: unknown[] = [];
+  let resources: unknown[] = [];
+  let prompts: unknown[] = [];
+  for (const run of runData['Parse Report To JSON'] ?? []) {
+    for (const item of run?.data?.main?.[0] ?? []) {
+      const json = item?.json ?? {};
+      if (Array.isArray(json.tools) && json.tools.length > tools.length) tools = json.tools;
+      if (Array.isArray(json.resources) && json.resources.length > resources.length) resources = json.resources;
+      if (Array.isArray(json.prompts) && json.prompts.length > prompts.length) prompts = json.prompts;
+    }
   }
-  return NextResponse.json({ status, message: 'Report not found.', execution_id });
+
+  if (report) {
+    return NextResponse.json({ status, report, tools, resources, prompts });
+  }
+  return NextResponse.json({ status, message: 'Report not found.', execution_id, tools, resources, prompts });
 }
