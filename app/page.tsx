@@ -11,6 +11,7 @@ const ALLOWED_TARGETS = [
   "http://192.168.0.103:8000/mcp",
   "https://example-server.modelcontextprotocol.io/mcp",
   "http://127.0.0.1:9000/mcp",
+  "http://127.0.0.1:8001/sse",
 ];
 
 export default function HomePage() {
