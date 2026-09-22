@@ -43,9 +43,15 @@ function parseSeverityColor(severity: string) {
   }
 }
 
-function parseReport(markdown: string): { confirmed: Finding[]; unconfirmed: Finding[]; raw: string } {
+function parseReport(markdown: string): { confirmed: Finding[]; unconfirmed: Finding[]; raw: string; formattingFailed: boolean } {
   const confirmed: Finding[] = [];
   const unconfirmed: Finding[] = [];
+
+  // The Report Generator LLM step can fail and fall back to a raw, untriaged
+  // text dump that doesn't match the markdown-table format parsed below.
+  // Detect that so the UI never silently reports "no vulnerabilities" when
+  // findings simply couldn't be parsed out of the fallback text.
+  const formattingFailed = /AUTOMATED REPORT GENERATION FAILED/i.test(markdown);
 
   const confirmedSection = markdown.match(/## Confirmed Vulnerabilities\n([\s\S]*?)(?=## |$)/);
   const unconfirmedSection = markdown.match(/## Unconfirmed Findings[^\n]*\n([\s\S]*?)(?=## |$)/);
@@ -77,7 +83,7 @@ function parseReport(markdown: string): { confirmed: Finding[]; unconfirmed: Fin
   parseTable(confirmedSection?.[1], true);
   parseTable(unconfirmedSection?.[1], false);
 
-  return { confirmed, unconfirmed, raw: markdown };
+  return { confirmed, unconfirmed, raw: markdown, formattingFailed };
 }
 
 export default function ScanPage() {
@@ -193,13 +199,23 @@ export default function ScanPage() {
 
       {isSuccess && report && (
         <>
+          {report.formattingFailed && <ReportFormattingWarning />}
+
           <div className="grid grid-cols-3 gap-4 mb-6">
             <StatCard label="Confirmed" value={confirmedCount} color="red" />
             <StatCard label="Needs Review" value={unconfirmedCount} color="yellow" />
             <StatCard
               label="Highest Severity"
-              value={report.confirmed[0]?.severity ?? (confirmedCount === 0 ? "None" : "–")}
-              color={confirmedCount > 0 ? "red" : "green"}
+              value={
+                report.formattingFailed && confirmedCount === 0
+                  ? "Unknown"
+                  : (report.confirmed[0]?.severity ?? (confirmedCount === 0 ? "None" : "–"))
+              }
+              color={
+                report.formattingFailed && confirmedCount === 0
+                  ? "yellow"
+                  : confirmedCount > 0 ? "red" : "green"
+              }
               isText
             />
           </div>
@@ -237,11 +253,22 @@ export default function ScanPage() {
                 </section>
               )}
               {confirmedCount === 0 && unconfirmedCount === 0 && (
-                <div className="text-center py-16 text-slate-500">
-                  <div className="text-4xl mb-3">✅</div>
-                  <div className="font-semibold text-white mb-1">No vulnerabilities found</div>
-                  <div className="text-sm">This target passed all security checks</div>
-                </div>
+                report.formattingFailed ? (
+                  <div className="text-center py-16 text-slate-500">
+                    <div className="text-4xl mb-3">⚠️</div>
+                    <div className="font-semibold text-orange-400 mb-1">Findings could not be parsed</div>
+                    <div className="text-sm max-w-md mx-auto">
+                      Report generation failed and fell back to a raw format this page can&apos;t parse into a findings list.
+                      This is <span className="font-semibold text-white">not</span> a clean scan — check the Raw Report tab.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-16 text-slate-500">
+                    <div className="text-4xl mb-3">✅</div>
+                    <div className="font-semibold text-white mb-1">No vulnerabilities found</div>
+                    <div className="text-sm">This target passed all security checks</div>
+                  </div>
+                )
               )}
             </div>
           )}
@@ -346,6 +373,21 @@ export default function ScanPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ReportFormattingWarning() {
+  return (
+    <div className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-5 mb-6 flex items-start gap-3">
+      <span className="text-2xl leading-none">⚠️</span>
+      <div>
+        <div className="text-orange-400 font-semibold mb-1">Report formatting failed</div>
+        <div className="text-slate-300 text-sm">
+          The AI report writer failed to format this scan&apos;s findings, so the summary counts above may be incomplete or wrong.
+          Check the <span className="font-medium text-white">Raw Report</span> tab for the full untriaged output before trusting a &quot;no vulnerabilities&quot; result.
+        </div>
+      </div>
     </div>
   );
 }
