@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isAllowedTarget } from '../../../lib/allowedTargets';
 
 export async function POST(req: NextRequest) {
   const { target_url, dry_run } = await req.json();
+
+  // SECURITY_AUDIT.md finding #2: the n8n-side "Scope Guardrail" this
+  // previously relied on exclusively does not actually block unlisted
+  // targets (confirmed live, execution #529, 2026-10-03). Enforce the
+  // allow-list here too, before the webhook is ever called, so this
+  // route can't be used to point the live scanner at an arbitrary,
+  // non-consented MCP server.
+  if (typeof target_url !== 'string' || !isAllowedTarget(target_url)) {
+    return NextResponse.json(
+      { error: 'Target not authorized. This tool only scans pre-approved test targets.' },
+      { status: 403 }
+    );
+  }
 
   const webhookUrl = process.env.N8N_WEBHOOK_URL!;
   const apiBase = process.env.N8N_API_BASE!;

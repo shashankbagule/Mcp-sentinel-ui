@@ -21,55 +21,83 @@ export async function GET(req: NextRequest) {
   }
 
   const runData = data?.data?.resultData?.runData ?? {};
-  let report: string | null = null;
 
-  // A node can execute more than once in a single workflow run (e.g. when
-  // upstream data arrives as multiple items instead of one merged item),
-  // and each execution shows up as its own entry in runData[nodeName]. When
-  // that happens for 'Report Generator', the AI step runs independently per
-  // item and can produce a full, well-formed but empty/degenerate report
-  // ("0 confirmed, 0 unconfirmed") for a near-empty batch alongside the real
-  // report for the batch that actually has findings. Taking the *first*
-  // candidate over 100 chars (the old behavior) can silently pick the empty
-  // one if it happens to run first. Instead, collect every candidate for a
-  // node name and take the longest — a genuine findings report is always
-  // substantially longer than a "no findings" one.
-  for (const nodeName of ['Report Generator', 'Report Failure Fallback', 'Compute Regression']) {
-    const candidates: string[] = [];
-    for (const run of runData[nodeName] ?? []) {
-      for (const item of run?.data?.main?.[0] ?? []) {
-        const candidate = item?.json?.output ?? '';
-        if (candidate && candidate.length > 100) {
-          candidates.push(candidate);
-        }
-      }
-    }
-    if (candidates.length > 0) {
-      report = candidates.reduce((best, c) => (c.length > best.length ? c : best));
-      break;
-    }
-  }
-
-  // Discovered tools/resources/prompts, for the frontend's Discovered tab.
-  // 'Parse Report To JSON' already attaches these to its own output (all 4
-  // of its return branches carry tools/resources/prompts arrays sourced
-  // from the List Tools / Discover Resources / Discover Prompts nodes) —
-  // this route previously only ever forwarded `status` and `report`, so
-  // the data was being produced by n8n but silently dropped here.
-  let tools: unknown[] = [];
-  let resources: unknown[] = [];
-  let prompts: unknown[] = [];
+  // 'Parse Report To JSON' is the workflow's single authoritative
+  // consolidation node. Every branch it can take (success / report-generation
+  // failed / legacy-markdown-parse fallback / neither section found) sets its
+  // own `reportStatus` and `requiresManualReview` flag, specifically so a
+  // downstream consumer can tell a genuine result apart from a degraded one.
+  //
+  // This route used to skip straight past that signal and independently
+  // scrape 'Report Generator' / 'Report Failure Fallback' / 'Compute
+  // Regression' node output, picking whichever had the *longest* text found
+  // anywhere in the execution's runData. 'Report Generator' is an AI step
+  // that can run more than once per execution (once per finding/batch), so
+  // when the run that matters failed (e.g. an upstream LLM rate limit) but an
+  // unrelated/earlier run of the same node left a longer, well-formed-looking
+  // string elsewhere in runData, that heuristic would silently serve the
+  // unrelated text as if it were this execution's real report — masking a
+  // real failure behind a plausible-looking but wrong result. See the
+  // MCP-Sentinel audit notes: execution #499 had 'Parse Report To JSON'
+  // recording reportStatus: 'FAILED' / confirmedVulnerabilities: null (the
+  // Report Generator call hit an OpenAI/Groq rate limit), while the old
+  // "longest candidate" scrape still returned a fully populated, unrelated
+  // report for that same execution_id.
+  //
+  // Fix: read 'Parse Report To JSON' first and trust its own status. Only
+  // treat the run as a genuine success when it says SUCCESS and does not
+  // require manual review; otherwise surface the failure explicitly instead
+  // of guessing at a substitute report.
+  let parsed: Record<string, unknown> | null = null;
   for (const run of runData['Parse Report To JSON'] ?? []) {
     for (const item of run?.data?.main?.[0] ?? []) {
-      const json = item?.json ?? {};
-      if (Array.isArray(json.tools) && json.tools.length > tools.length) tools = json.tools;
-      if (Array.isArray(json.resources) && json.resources.length > resources.length) resources = json.resources;
-      if (Array.isArray(json.prompts) && json.prompts.length > prompts.length) prompts = json.prompts;
+      if (item?.json) parsed = item.json as Record<string, unknown>;
     }
   }
 
-  if (report) {
-    return NextResponse.json({ status, report, tools, resources, prompts });
+  const tools = Array.isArray(parsed?.tools) ? (parsed!.tools as unknown[]) : [];
+  const resources = Array.isArray(parsed?.resources) ? (parsed!.resources as unknown[]) : [];
+  const prompts = Array.isArray(parsed?.prompts) ? (parsed!.prompts as unknown[]) : [];
+
+  if (!parsed) {
+    return NextResponse.json({ status, message: 'Report not found.', execution_id, tools, resources, prompts });
   }
-  return NextResponse.json({ status, message: 'Report not found.', execution_id, tools, resources, prompts });
+
+  const reportStatus = (parsed.reportStatus as string | undefined) ?? 'UNKNOWN';
+  const requiresManualReview = parsed.requiresManualReview === true;
+  const rawOutput = typeof parsed.rawOutput === 'string' ? (parsed.rawOutput as string) : null;
+
+  if (reportStatus === 'SUCCESS' && !requiresManualReview) {
+    return NextResponse.json({
+      status,
+      report: rawOutput,
+      confirmedVulnerabilities: parsed.confirmedVulnerabilities ?? null,
+      unconfirmedLeads: parsed.unconfirmedLeads ?? null,
+      counts: parsed.counts ?? null,
+      tools,
+      resources,
+      prompts,
+    });
+  }
+
+  // Report generation did not complete cleanly for this run (LLM error,
+  // rate limit, or a legacy-markdown fallback that needs manual review).
+  // Surface that plainly rather than picking a substitute report.
+  return NextResponse.json({
+    status,
+    report: null,
+    requiresManualReview: true,
+    reportStatus,
+    reportFailureError: parsed.reportFailureError ?? null,
+    parsingStatus: parsed.parsingStatus ?? null,
+    parsingNote: parsed.parsingNote ?? null,
+    parsingFailureReason: parsed.parsingFailureReason ?? null,
+    rawOutput,
+    confirmedVulnerabilities: parsed.confirmedVulnerabilities ?? null,
+    unconfirmedLeads: parsed.unconfirmedLeads ?? null,
+    counts: parsed.counts ?? null,
+    tools,
+    resources,
+    prompts,
+  });
 }

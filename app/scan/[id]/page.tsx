@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { parseReport, type Finding, type ParsedReport } from "../../lib/parseReport";
 
 type Status = "running" | "success" | "error" | "crashed" | "canceled" | "unknown";
 
@@ -25,14 +26,6 @@ interface McpPrompt {
   arguments?: { name: string; description: string; required?: boolean }[];
 }
 
-interface Finding {
-  score: number;
-  text: string;
-  severity: string;
-  recommendation: string;
-  confirmed: boolean;
-}
-
 function parseSeverityColor(severity: string) {
   switch (severity.toLowerCase()) {
     case "critical": return "text-red-400 bg-red-500/10 border-red-500/30";
@@ -41,49 +34,6 @@ function parseSeverityColor(severity: string) {
     case "low": return "text-blue-400 bg-blue-500/10 border-blue-500/30";
     default: return "text-slate-400 bg-slate-500/10 border-slate-500/30";
   }
-}
-
-function parseReport(markdown: string): { confirmed: Finding[]; unconfirmed: Finding[]; raw: string; formattingFailed: boolean } {
-  const confirmed: Finding[] = [];
-  const unconfirmed: Finding[] = [];
-
-  // The Report Generator LLM step can fail and fall back to a raw, untriaged
-  // text dump that doesn't match the markdown-table format parsed below.
-  // Detect that so the UI never silently reports "no vulnerabilities" when
-  // findings simply couldn't be parsed out of the fallback text.
-  const formattingFailed = /AUTOMATED REPORT GENERATION FAILED/i.test(markdown);
-
-  const confirmedSection = markdown.match(/## Confirmed Vulnerabilities\n([\s\S]*?)(?=## |$)/);
-  const unconfirmedSection = markdown.match(/## Unconfirmed Findings[^\n]*\n([\s\S]*?)(?=## |$)/);
-
-  function parseTable(section: string | undefined, isConfirmed: boolean) {
-    if (!section) return;
-    const rows = section.match(/\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|/g) ?? [];
-    for (const row of rows) {
-      const cells = row.split("|").map(c => c.trim()).filter(Boolean);
-      if (cells.length < 4 || cells[0] === "Score" || cells[0].startsWith("---")) continue;
-      const score = parseFloat(cells[0]) || 0;
-      const finding: Finding = {
-        score,
-        text: cells[1] ?? "",
-        severity: cells[2] ?? "Unknown",
-        recommendation: cells[3] ?? "",
-        confirmed: isConfirmed,
-      };
-      if (finding.text && finding.text.length > 5) {
-        if (isConfirmed) {
-          confirmed.push(finding);
-        } else {
-          unconfirmed.push(finding);
-        }
-      }
-    }
-  }
-
-  parseTable(confirmedSection?.[1], true);
-  parseTable(unconfirmedSection?.[1], false);
-
-  return { confirmed, unconfirmed, raw: markdown, formattingFailed };
 }
 
 export default function ScanPage() {

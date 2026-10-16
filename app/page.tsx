@@ -2,17 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-
-const ALLOWED_TARGETS = [
-  "https://vulnerablemcp.onrender.com/mcp",
-  "https://shashankbagule.app.n8n.cloud/mcp/7366dacd-9061-42d4-a563-9585c0af932b",
-  "http://172.17.0.1:8000/mcp",
-  "http://127.0.0.1:8000/mcp",
-  "http://192.168.0.103:8000/mcp",
-  "https://example-server.modelcontextprotocol.io/mcp",
-  "http://127.0.0.1:9000/mcp",
-  "http://127.0.0.1:8001/sse",
-];
+import { saveScanToHistory } from "./lib/scanHistory";
+import { ALLOWED_TARGETS } from "./lib/allowedTargets";
 
 export default function HomePage() {
   const router = useRouter();
@@ -34,6 +25,12 @@ export default function HomePage() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      saveScanToHistory({
+        execution_id: data.execution_id,
+        target_url: target,
+        dry_run: dryRun,
+        started_at: new Date().toISOString(),
+      });
       router.push(`/scan/${data.execution_id}?target=${encodeURIComponent(target)}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
